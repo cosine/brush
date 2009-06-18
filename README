@@ -1,0 +1,20 @@
+Rubish is intented to be an interactive shell with the power of Ruby.
+As it is in its infancy, it is very basic and much of the functionality
+is implemented by scaffolding that will later be replaced.  For
+instance, presently commands are passed off to another shell for
+execution, but eventually all globbing, pipe setup, forking, and execing
+will be handled directly by Rubish.
+
+By default commands are executed as they are given.  To invoke the Ruby
+REPL (read-eval-print loop) just begin any line with whitespace.  All
+commands and REPL input is restricted to a single line for now until the
+command and REPL parsers are hooked in.  The command parser will be part
+of Rubish and the REPL parser will probably use IRB.
+
+Rubish is licensed by the two-clause BSD license.  Please see the
+LICENSE file for details.
+
+Alternatively, Rubish can be licensed by the same terms as Ruby, but it
+may not be dual-licensed when redistributed.  You must select the BSD
+license or the Ruby license and specify which terms the software is
+henceforth licensed by.
