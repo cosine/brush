@@ -1,5 +1,4 @@
 require 'fileutils'
-require 'escape'
 
 
 module Rubish; end
@@ -326,6 +325,8 @@ module Rubish::Pipeline::Win32
 
 
   def find_in_path (name)
+    chkname = nil
+
     if name =~ %r"[:/\\]"     # Path is absolute or relative.
       basename = File.basename(name)
       fullname = File.expand_path(name)
@@ -366,6 +367,7 @@ end
 
 module Rubish::Pipeline
   if RUBY_PLATFORM =~ /-(mswin|mingw)/
+    require 'escape'
     require 'win32/process'
     include Windows::Handle
     include Rubish::Pipeline::Win32
