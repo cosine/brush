@@ -1,6 +1,3 @@
-require 'fileutils'
-
-
 module Rubish; end
 
 
@@ -231,7 +228,7 @@ module Rubish::Pipeline::POSIX
         eval("$#{io_sym}").reopen(options[io_sym]) if options[io_sym]
       end
 
-      FileUtils.cd(options[:cd]) do
+      Dir.chdir(options[:cd]) do
         exec [options[:executable], argv[0]], *argv[1..-1]
       end
 
@@ -307,7 +304,7 @@ module Rubish::Pipeline::Win32
       make_handle_inheritable(options[io_sym]) if options[io_sym]
     end
 
-    FileUtils.cd(options[:cd]) do
+    Dir.chdir(options[:cd]) do
       return Process.create(
           :app_name => options[:executable],
           :command_line => Escape.shell_command(argv),
