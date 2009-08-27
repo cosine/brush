@@ -367,8 +367,9 @@ end
 
 module Rubish::Pipeline
   if RUBY_PLATFORM =~ /-(mswin|mingw)/
-    require 'escape'
+    gem 'win32-process', '>= 0.6.1'
     require 'win32/process'
+    require 'escape'
     include Windows::Handle
     include Rubish::Pipeline::Win32
   else
