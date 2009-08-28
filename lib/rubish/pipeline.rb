@@ -68,8 +68,14 @@ module Rubish::Pipeline
   #   :as_user — Array specifying user and credentials to run as.
   #   process.
   #
-  # Returns a process object that includes all the process and thread
-  # handles.
+  # Returns an array of arrays:
+  #   [process objects, threads, pipes]
+  #
+  # Process objects contain the pid and any relevent process and thread
+  # handles.  Threads returned need to be joined to guarentee their
+  # input or output is completely processed after the program
+  # terminates.  Pipes returned need to be closed after the program
+  # terminates.
   #
   def sys_start (*argv)
     options = {
@@ -90,11 +96,20 @@ module Rubish::Pipeline
       options[io_sym]
     end
 
+    process_infos = []
+    pipe_threads = []
+    child_pipes = []
+
     [:stdin, :stdout, :stderr].each do |io_sym|
-      options[io_sym] = process_io(io_sym, options[io_sym], original_stdfiles)
+      options[io_sym], threads, pipes, p_infos =
+              *process_io(io_sym, options[io_sym], original_stdfiles)
+      pipe_threads.push *[*threads] if threads
+      child_pipes.push *[*pipes] if pipes
+      process_infos.push *p_infos if p_infos
     end
 
-    create_process(argv, options)
+    process_infos.unshift create_process(argv, options)
+    [process_infos, pipe_threads, child_pipes]
 
   ensure
     [:stdin, :stdout, :stderr].each do |io_sym|
@@ -105,7 +120,11 @@ module Rubish::Pipeline
 
 
   def sys (*argv)
-    sys_wait(sys_start(*argv))
+    process_infos, pipe_threads, child_pipes = *sys_start(*argv)
+    results = process_infos.collect { |pi| sys_wait(pi) }
+    pipe_threads.each { |t| t.join }
+    child_pipes.each { |io| io.close }
+    results
   end
 
 
@@ -119,18 +138,28 @@ module Rubish::Pipeline
   # ---- future:
   # String (empty), String (filename), String (data),
   # Symbol (other),
+  #
+  # Returns an array of stuff:
+  #   [IO object, thread or threads, pipe or pipes, process info objects]
+  #
+  # The IO object is the processed IO object based on the input IO
+  # object (+taret+), which may not have actually been an IO object.
+  # Threads returned, if any, need to be joined after the process
+  # terminates.  Pipes returned, if any, need to be closed after the
+  # process terminates.  Process info objects, if any, refer to other
+  # processes running in the pipeline that this call to process_io
+  # created.
+  #
   def process_io (io_sym, target, original_stdfiles)
 
     # Firstly, any File or IO value can be returned as it is.
     # We will duck-type recognize File and IO objects if they respond
     # to :fileno and the result of calling #fileno is not nil.
-    return target if target.respond_to?(:fileno) and not target.fileno.nil?
+    return [target] if target.respond_to?(:fileno) and not target.fileno.nil?
 
     # Integer (Fixnum in particular) arguments represent file
     # descriptors to attach this IO to.
-    if target.is_a? Fixnum
-      return IO.new(target)
-    end
+    return [IO.new(target)] if target.is_a? Fixnum
 
     # Handle special symbol values for :stdin.  Valid symbols are
     # :null and :zero.  Using :null is the same as +nil+ (no input),
@@ -166,11 +195,11 @@ module Rubish::Pipeline
           data = nil; target.syswrite(data) while data = r.sysread(1024)
         end
       elsif target.is_a?(Array)               # pipeline
-        return output_pipe do |r|
+        return child_pipe do |r|
           argv = target.dup
           argv.push(Hash.new) if not argv[-1].respond_to?(:has_key?)
           argv[-1].merge!(:stdin => r)
-          sys(*argv)
+          sys_start(*argv)
         end
       else
         raise "Invalid output object in Rubish#sys"
@@ -179,30 +208,38 @@ module Rubish::Pipeline
   end
 
 
-  def input_pipe
-    r, w = *IO.pipe
-    class << r; def rubish_pipe?; true; end; end
-    Thread.new do
+  def generic_pipe (p_pipe, ch_pipe)
+    mark_pipes(p_pipe, ch_pipe)
+    t = Thread.new do
       begin
-        yield w
+        yield ch_pipe
+      rescue Exception
       ensure
-        w.close
+        ch_pipe.close
       end
     end
-    r
+    [p_pipe, t]
   end
 
-  def output_pipe
+  def mark_pipes (p_pipe, ch_pipe)
+    class << p_pipe; def rubish_pipe?; true; end; end
+    class << ch_pipe; def rubish_child_pipe?; true; end; end
+  end
+
+  def input_pipe (&block)
+    generic_pipe *IO.pipe, &block
+  end
+
+  def output_pipe (&block)
+    generic_pipe *IO.pipe.reverse, &block
+  end
+
+  def child_pipe
     r, w = *IO.pipe
-    class << w; def rubish_pipe?; true; end; end
-    Thread.new do
-      begin
-        yield r
-      ensure
-        r.close
-      end
-    end
-    w
+    mark_pipes(w, r)
+    process_infos, threads, pipes = *yield(r)
+    pipes << r
+    [w, threads, pipes, process_infos]
   end
 
 

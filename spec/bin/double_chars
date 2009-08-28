@@ -1,0 +1,8 @@
+#!/usr/bin/env ruby
+#
+# Program that doubles all instances of given command line arguments in
+# the input stream.
+
+while line = begin $stdin.readline; rescue EOFError; end
+  print ARGV.inject(line) { |data, string| data.gsub(string, string * 2) }
+end
