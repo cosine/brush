@@ -45,13 +45,13 @@ module Rubish::Pipeline
   #       :stdout => extracted_files)
   #
   def pipeline (*elements)
-    options = {}
-    if elements[-1].respond_to?(:has_key?)
-      options.merge!(elements.pop)
-    end
-
+    raise "this method is not implemented"
   end
 
+
+  PARENT_PIPES = {}
+
+  SysInfo = Struct.new(:process_infos, :threads)
 
   #
   # Options to each pipeline element include:
@@ -63,8 +63,12 @@ module Rubish::Pipeline
   #   :executable — specifies an alternative binary to run, instead of
   #   using the value for argv[0].
   #   :cd — change into this directory for this program.
+  #   :close — File or IO.fileno values to close after fork() or set
+  #   un-inheritable prior to calling ProcessCreate().
   #   ---- probable future options
-  #   :env — pass an alternative set of environment variables to the
+  #   :keep — File or IO.fileno values to keep open in child.
+  #   :timeout — terminate after a given time.
+  #   :env — pass an alternative set of environment variables.
   #   :as_user — Array specifying user and credentials to run as.
   #   process.
   #
@@ -83,7 +87,8 @@ module Rubish::Pipeline
       :stdout => $stdout,
       :stderr => $stderr,
       :executable => argv[0],
-      :cd => '.'
+      :cd => '.',
+      :close => []
     }
 
     if argv[-1].respond_to?(:has_key?)
@@ -96,37 +101,39 @@ module Rubish::Pipeline
       options[io_sym]
     end
 
-    process_infos = []
-    pipe_threads = []
-    child_pipes = []
+    upper_child_pipes = []      # pipes for children up the pipeline
+    lower_child_pipes = []      # pipes for children down the pipeline
+    threads = []                # threads handling special needs I/O
+    process_infos = []          # info for children down the pipeline
 
     [:stdin, :stdout, :stderr].each do |io_sym|
-      options[io_sym], threads, pipes, p_infos =
-              *process_io(io_sym, options[io_sym], original_stdfiles)
-      pipe_threads.push *[*threads] if threads
-      child_pipes.push *[*pipes] if pipes
-      process_infos.push *p_infos if p_infos
+      pior = process_io(io_sym, options[io_sym], original_stdfiles,
+          upper_child_pipes + lower_child_pipes + options[:close])
+      options[io_sym] = pior.io
+
+      upper_child_pipes << pior.io if pior.threads
+      lower_child_pipes << pior.pipe if pior.pipe
+      threads.push *pior.threads if pior.threads
+      process_infos.push *pior.process_infos if pior.process_infos
     end
 
-    process_infos.unshift create_process(argv, options)
-    [process_infos, pipe_threads, child_pipes]
-
-  ensure
-    [:stdin, :stdout, :stderr].each do |io_sym|
-      io = options[io_sym]
-      io.close if io.respond_to?(:rubish_pipe?) and not io.closed?
-    end
+    process_infos.unshift(
+        create_process(argv, options, lower_child_pipes + options[:close]))
+    upper_child_pipes.each { |io| io.close }
+    lower_child_pipes.each { |io| io.close }
+    SysInfo.new(process_infos, threads)
   end
 
 
   def sys (*argv)
-    process_infos, pipe_threads, child_pipes = *sys_start(*argv)
-    results = process_infos.collect { |pi| sys_wait(pi) }
-    pipe_threads.each { |t| t.join }
-    child_pipes.each { |io| io.close }
+    sysinfo = sys_start(*argv)
+    results = sysinfo.process_infos.collect { |pi| sys_wait(pi) }
+    sysinfo.threads.each { |t| t.join }
     results
   end
 
+
+  ProcessIOResult = Struct.new(:io, :pipe, :threads, :process_infos)
 
   # File or IO, String (empty), String (filename), String (data),
   # StringIO, Integer, :stdout, :stderr, :null or nil, :zero, Symbol (other),
@@ -150,16 +157,18 @@ module Rubish::Pipeline
   # processes running in the pipeline that this call to process_io
   # created.
   #
-  def process_io (io_sym, target, original_stdfiles)
+  def process_io (io_sym, target, original_stdfiles, close_pipes)
 
     # Firstly, any File or IO value can be returned as it is.
     # We will duck-type recognize File and IO objects if they respond
     # to :fileno and the result of calling #fileno is not nil.
-    return [target] if target.respond_to?(:fileno) and not target.fileno.nil?
+    if target.respond_to?(:fileno) and not target.fileno.nil?
+      return ProcessIOResult.new(target)
+    end
 
     # Integer (Fixnum in particular) arguments represent file
     # descriptors to attach this IO to.
-    return [IO.new(target)] if target.is_a? Fixnum
+    return ProcessIOResult.new(IO.new(target)) if target.is_a? Fixnum
 
     # Handle special symbol values for :stdin.  Valid symbols are
     # :null and :zero.  Using :null is the same as +nil+ (no input),
@@ -187,18 +196,18 @@ module Rubish::Pipeline
       if target.nil? or target == :null or target == :zero
         return output_pipe { |r| r.sysread(1024) while true }
       elsif target == :stdout
-        return original_stdfiles[0] # FIXME: broken
+        return process_io(io_sym, original_stdfiles[0], nil, close_pipes)
       elsif target == :stderr
-        return original_stdfiles[1] # FIXME: broken
+        return process_io(io_sym, original_stdfiles[1], nil, close_pipes)
       elsif target.respond_to?(:syswrite)     # "fake" IO and StringIO
         return output_pipe do |r|
           data = nil; target.syswrite(data) while data = r.sysread(1024)
         end
       elsif target.is_a?(Array)               # pipeline
-        return child_pipe do |r|
+        return child_pipe do |r, w|
           argv = target.dup
           argv.push(Hash.new) if not argv[-1].respond_to?(:has_key?)
-          argv[-1].merge!(:stdin => r)
+          argv[-1].merge!(:stdin => r, :close => [w] + close_pipes)
           sys_start(*argv)
         end
       else
@@ -209,37 +218,42 @@ module Rubish::Pipeline
 
 
   def generic_pipe (p_pipe, ch_pipe)
-    mark_pipes(p_pipe, ch_pipe)
+    mark_parent_pipe(p_pipe)
     t = Thread.new do
       begin
-        yield ch_pipe
+        yield p_pipe
       rescue Exception
       ensure
-        ch_pipe.close
+        p_pipe.close
       end
     end
-    [p_pipe, t]
+    ProcessIOResult.new(ch_pipe, nil, [t])
   end
 
-  def mark_pipes (p_pipe, ch_pipe)
-    class << p_pipe; def rubish_pipe?; true; end; end
-    class << ch_pipe; def rubish_child_pipe?; true; end; end
+  def mark_parent_pipe (pipe)
+    class << pipe
+      def close
+        super
+      ensure
+        Rubish::Pipeline::PARENT_PIPES.delete(self)
+      end
+    end
+
+    Rubish::Pipeline::PARENT_PIPES[pipe] = true
   end
 
   def input_pipe (&block)
-    generic_pipe *IO.pipe, &block
+    generic_pipe *IO.pipe.reverse, &block
   end
 
   def output_pipe (&block)
-    generic_pipe *IO.pipe.reverse, &block
+    generic_pipe *IO.pipe, &block
   end
 
   def child_pipe
     r, w = *IO.pipe
-    mark_pipes(w, r)
-    process_infos, threads, pipes = *yield(r)
-    pipes << r
-    [w, threads, pipes, process_infos]
+    sysinfo = yield r, w
+    ProcessIOResult.new(w, r, sysinfo.threads, sysinfo.process_infos)
   end
 
 
@@ -252,18 +266,39 @@ end
 
 
 module Rubish::Pipeline::POSIX
+  ProcessInfo = Struct.new(:process_id)
 
   def sys_wait (process_info)
+    #system("ls -l /proc/#{$$}/fd /proc/#{process_info.process_id}/fd")
     Process.waitpid2(process_info.process_id)[1]
   end
 
-  def create_process (argv, options)
-    pid = fork
+  def create_process (argv, options, close_pipes)
 
-    if pid.nil?                # child process
+    # The following is used for manual specification testing to verify
+    # that pipes are correctly closed after fork.  This is extremely
+    # difficult to write an RSpec test for, and it is only possible on
+    # platforms that have a /proc filesystem anyway.  Regardless, this
+    # will be moved into an RSpec test at some point.
+    #
+    #$stderr.puts "===== P #{$$}: #{ %x"ls -l /proc/#{$$}/fd" }"
+
+    pid = fork do               # child process
       [:stdin, :stdout, :stderr].each do |io_sym|
-        eval("$#{io_sym}").reopen(options[io_sym]) if options[io_sym]
+        io = options[io_sym]
+        if io != Kernel.const_get(io_sym.to_s.upcase)
+          Kernel.const_get(io_sym.to_s.upcase).reopen(io)
+          io.close
+        end
       end
+
+      close_pipes.each { |io| io.close }
+      Rubish::Pipeline::PARENT_PIPES.each_key { |io| io.close }
+
+      # This is the second half of the manual specification testing
+      # started above.  See comment above for more information.
+      #
+      #$stderr.puts "===== C #{$$}: #{ %x"ls -l /proc/#{$$}/fd" }"
 
       Dir.chdir(options[:cd]) do
         exec [options[:executable], argv[0]], *argv[1..-1]
@@ -272,10 +307,7 @@ module Rubish::Pipeline::POSIX
       raise Error, "failed to exec"
     end
 
-    process_info = Object.new
-    process_info.instance_variable_set(:@process_id, pid)
-    class << process_info; attr_reader :process_id; end
-    process_info
+    ProcessInfo.new(pid)
   end
 
   def find_in_path (name)
@@ -326,17 +358,25 @@ module Rubish::Pipeline::Win32
   end
 
 
-  def make_handle_inheritable (io)
+  def make_handle_inheritable (io, inheritable = true)
     if not SetHandleInformation(
         get_osfhandle(io.fileno), Windows::Handle::HANDLE_FLAG_INHERIT,
-        Windows::Handle::HANDLE_FLAG_INHERIT) \
+        inheritable ? Windows::Handle::HANDLE_FLAG_INHERIT : 0) \
     then
       raise Error, get_last_error
     end 
   end
 
 
-  def create_process (argv, options)
+  def create_process (argv, options, close_pipes)
+    close_pipes.each do |io|
+      make_handle_inheritable(io, false)
+    end
+
+    Rubish::Pipeline::PARENT_PIPES.each_key do |io|
+      make_handle_inheritable(io, false)
+    end
+
     [:stdin, :stdout, :stderr].each do |io_sym|
       make_handle_inheritable(options[io_sym]) if options[io_sym]
     end
