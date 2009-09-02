@@ -1,14 +1,14 @@
 require './spec/spec_helper.rb'
-require 'rubish/pipeline'
+require 'brush/pipeline'
 
 require 'stringio'
 require 'tempfile'
 require 'timeout'
 
-include Rubish::Pipeline
+include Brush::Pipeline
 
 
-describe Rubish::Pipeline do
+describe Brush::Pipeline do
   describe ".sys" do
     DOUBLE_CHARS_CMD = ['ruby', 'spec/bin/double_chars', 'the']
 
@@ -26,7 +26,7 @@ describe Rubish::Pipeline do
       CAT_CMD = ['cat']
     end
 
-    # Call Rubish::Pipeline#sys and wait two seconds before barfing.  It
+    # Call Brush::Pipeline#sys and wait two seconds before barfing.  It
     # keeps the tests moving if something gets stuck due to pipes not
     # getting closed, though if triggered it may leave unattached
     # processes that need to be killed manually if the un-closed pipe is

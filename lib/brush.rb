@@ -1,5 +1,5 @@
 
-module Rubish
+module Brush
   class Shell
     DEFAULT_EXEC_MATCH = %r"^(\S.*)"
     DEFAULT_RUBY_MATCH = %r"^\s+(.*)"

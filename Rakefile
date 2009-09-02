@@ -2,7 +2,7 @@
 require 'rake/gempackagetask'
 require 'spec/rake/spectask'
 
-gemspec_file = 'rubish.gemspec'
+gemspec_file = 'brush.gemspec'
 spec = nil
 eval File.read(gemspec_file), binding, gemspec_file, 1
 

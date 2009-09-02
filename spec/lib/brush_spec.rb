@@ -1,16 +1,16 @@
 require './spec/spec_helper.rb'
-require 'rubish'
+require 'brush'
 
 
-describe Rubish::Shell do
+describe Brush::Shell do
   describe ".new" do
     it "should succeed" do
-      proc { Rubish::Shell.new }.should_not raise_error
+      proc { Brush::Shell.new }.should_not raise_error
     end
 
     it "should succeed with an alternate input, output, error, and binding" do
       f = Array.new(3) { StringIO.new }
-      proc { Rubish::Shell.new(f[0], f[1], f[2], binding) }.
+      proc { Brush::Shell.new(f[0], f[1], f[2], binding) }.
           should_not raise_error
     end
   end
@@ -18,7 +18,7 @@ describe Rubish::Shell do
   describe ".start" do
     before :each do
       @f = Array.new(3) { StringIO.new }
-      @sh = Rubish::Shell.new(@f[0], @f[1], @f[2])
+      @sh = Brush::Shell.new(@f[0], @f[1], @f[2])
     end
 
     it "should pass shell command input to system" do

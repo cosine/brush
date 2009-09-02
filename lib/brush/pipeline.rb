@@ -1,7 +1,7 @@
-module Rubish; end
+module Brush; end
 
 
-module Rubish::Pipeline
+module Brush::Pipeline
 
   #
   # Example of future +pipetree+ method.
@@ -39,7 +39,7 @@ module Rubish::Pipeline
   #
   # Example:
   #   extracted_files = String.new
-  #   Rubish::Pipeline.pipeline(
+  #   Brush::Pipeline.pipeline(
   #       ['gzip', '-cd', 'filename.tar.gz', :cd => 'Downloads'],
   #       ['tar', 'xvf', '-', :cd => 'Extractions'],
   #       :stdout => extracted_files)
@@ -184,7 +184,7 @@ module Rubish::Pipeline
           data = nil; w.syswrite(data) while data = target.sysread(1024)
         end
       else
-        raise "Invalid input object in Rubish#sys"
+        raise "Invalid input object in Brush#sys"
       end
 
     # Handle special symbol values for :stdout and :stderr.  Valid
@@ -211,7 +211,7 @@ module Rubish::Pipeline
           sys_start(*argv)
         end
       else
-        raise "Invalid output object in Rubish#sys"
+        raise "Invalid output object in Brush#sys"
       end
     end
   end
@@ -235,11 +235,11 @@ module Rubish::Pipeline
       def close
         super
       ensure
-        Rubish::Pipeline::PARENT_PIPES.delete(self)
+        Brush::Pipeline::PARENT_PIPES.delete(self)
       end
     end
 
-    Rubish::Pipeline::PARENT_PIPES[pipe] = true
+    Brush::Pipeline::PARENT_PIPES[pipe] = true
   end
 
   def input_pipe (&block)
@@ -265,7 +265,7 @@ module Rubish::Pipeline
 end
 
 
-module Rubish::Pipeline::POSIX
+module Brush::Pipeline::POSIX
   ProcessInfo = Struct.new(:process_id)
 
   def sys_wait (process_info)
@@ -293,7 +293,7 @@ module Rubish::Pipeline::POSIX
       end
 
       close_pipes.each { |io| io.close }
-      Rubish::Pipeline::PARENT_PIPES.each_key { |io| io.close }
+      Brush::Pipeline::PARENT_PIPES.each_key { |io| io.close }
 
       # This is the second half of the manual specification testing
       # started above.  See comment above for more information.
@@ -325,7 +325,7 @@ module Rubish::Pipeline::POSIX
 end
 
 
-module Rubish::Pipeline::Win32
+module Brush::Pipeline::Win32
 
   def sys_wait (process_info)
     numeric_status = Process.waitpid2(process_info.process_id)[1]
@@ -373,7 +373,7 @@ module Rubish::Pipeline::Win32
       make_handle_inheritable(io, false)
     end
 
-    Rubish::Pipeline::PARENT_PIPES.each_key do |io|
+    Brush::Pipeline::PARENT_PIPES.each_key do |io|
       make_handle_inheritable(io, false)
     end
 
@@ -439,14 +439,14 @@ module Rubish::Pipeline::Win32
 end
 
 
-module Rubish::Pipeline
+module Brush::Pipeline
   if RUBY_PLATFORM =~ /-(mswin|mingw)/
     gem 'win32-process', '>= 0.6.1'
     require 'win32/process'
     require 'escape'
     include Windows::Handle
-    include Rubish::Pipeline::Win32
+    include Brush::Pipeline::Win32
   else
-    include Rubish::Pipeline::POSIX
+    include Brush::Pipeline::POSIX
   end
 end
