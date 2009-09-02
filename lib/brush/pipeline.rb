@@ -4,15 +4,6 @@ module Brush; end
 module Brush::Pipeline
 
   #
-  # Example of future +pipetree+ method.
-  #
-  # pipetree 'gzip', '-cd', 'file.tgz', :stderr => :errors,
-  #     :stdout => ['tar', 'tf', '-', :stderr => :errors,
-  #     :stdout => archive_files_buffer ],
-  #     :errors => ['tee', 'errors_file.log']
-  #
-
-  #
   # Create and execute a pipeline consisting of commands.  Each
   # element of the pipeline is an array of command arguments and
   # options for that element of the pipeline.
@@ -45,7 +36,38 @@ module Brush::Pipeline
   #       :stdout => extracted_files)
   #
   def pipeline (*elements)
-    raise "this method is not implemented"
+    options = {
+      :stdin => $stdin,
+      :stdout => $stdout
+    }
+
+    if elements[-1].respond_to?(:has_key?)
+      options.merge!(elements.pop)
+    end
+
+    if elements.size == 0
+      raise "invalid use of pipeline: no commands given"
+    end
+
+    # Don't modify the originals, and make sure we have an options hash
+    # for each element.
+    elements = elements.collect do |argv|
+      argv = argv.dup
+      argv.push(Hash.new) if not argv[-1].respond_to?(:has_key?)
+      argv
+    end
+
+    # Feed the input and the output
+    elements[0][-1][:stdin] = options[:stdin]
+    elements[-1][-1][:stdout] = options[:stdout]
+
+    # Build up the structure for the call to #sys.
+    elements.each_with_index do |argv, index|
+      argv[-1][:stdout] = elements[index + 1] if index < elements.size - 1
+      argv[-1][:stderr] = options[:stderr] if options.has_key?(:stderr)
+    end
+
+    sys(*elements[0])
   end
 
 
@@ -127,9 +149,17 @@ module Brush::Pipeline
 
   def sys (*argv)
     sysinfo = sys_start(*argv)
-    results = sysinfo.process_infos.collect { |pi| sys_wait(pi) }
+    overall_result = nil
+
+    results = sysinfo.process_infos.collect do |pi|
+      status = sys_wait(pi)
+      overall_result = status if overall_result.nil? and not status.success?
+      status
+    end
+
     sysinfo.threads.each { |t| t.join }
-    results
+    overall_result = results[-1] if overall_result.nil?
+    duck_type_status_object(results, overall_result)
   end
 
 
@@ -262,6 +292,42 @@ module Brush::Pipeline
       yield File.expand_path(dir)
     end
   end
+
+
+  def duck_type_status_object (object, status_or_pid, status_integer = nil)
+    if status_integer.nil? and status_or_pid.respond_to?(:success?)
+      class << object
+        def method_missing (meth, *args)        # Act like the Status
+          @status.send(meth, *args)
+        end
+      end
+      object.instance_variable_set(:@status, status_or_pid)
+
+    else
+      class << object
+        attr_reader :to_i, :pid
+
+        # We have no idea if we exited normally, coredumped, etc.  Just
+        # pretend it's normal.
+        def coredump?; false; end
+        def exited?; true; end
+        def signaled?; false; end
+        def stopped?; false; end
+        def stopsig; nil; end
+        def success?; @to_i.zero?; end 
+        def termsig; nil; end
+        alias exitstatus to_i
+
+        def method_missing (meth, *args)        # Act like an Integer
+          @to_i.send(meth, *args)
+        end
+      end 
+      object.instance_variable_set(:@to_i, status_integer)
+      object.instance_variable_set(:@pid, status_or_pid)
+    end
+
+    object
+  end
 end
 
 
@@ -331,30 +397,7 @@ module Brush::Pipeline::Win32
     numeric_status = Process.waitpid2(process_info.process_id)[1]
     Process.CloseHandle(process_info.process_handle)
     Process.CloseHandle(process_info.thread_handle)
-
-    status = Object.new
-    class << status
-      attr_reader :to_i, :pid
-
-      # We have no idea if we exited normally, coredumped, etc.  Just
-      # pretend it's normal.
-      def coredump?; false; end
-      def exited?; true; end
-      def signaled?; false; end
-      def stopped?; false; end
-      def stopsig; nil; end
-      def success?; @to_i.zero?; end 
-      def termsig; nil; end
-      alias exitstatus to_i
-
-      def method_missing (meth, *args)  # Act like an Integer
-        @to_i.send(meth, *args)
-      end
-    end 
-    status.instance_variable_set(:@to_i, numeric_status)
-    status.instance_variable_set(:@pid, process_info.process_id)
-
-    status
+    duck_type_status_object(Object.new, process_info.process_id, numeric_status)
   end
 
 
