@@ -1,3 +1,7 @@
+#
+# Copyright (c) 2009, Michael H. Buselli
+# See LICENSE for details on permitted use.
+#
 
 module Brush
   class Shell

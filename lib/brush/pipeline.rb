@@ -1,3 +1,8 @@
+#
+# Copyright (c) 2009, Michael H. Buselli
+# See LICENSE for details on permitted use.
+#
+
 module Brush; end
 
 
@@ -297,13 +302,18 @@ module Brush::Pipeline
   def duck_type_status_object (object, status_or_pid, status_integer = nil)
     if status_integer.nil? and status_or_pid.respond_to?(:success?)
       class << object
-        def method_missing (meth, *args)        # Act like the Status
-          @status.send(meth, *args)
+        # Act like the Process::Status @status.
+        (Process::Status.instance_methods - self.instance_methods).each do |m|
+          eval("def #{m} (*args); @status.#{m}(*args); end")
         end
       end
       object.instance_variable_set(:@status, status_or_pid)
 
     else
+      class << object
+      end
+
+      object.instance_variable_set(:@status, status_or_pid)
       class << object
         attr_reader :to_i, :pid
 
@@ -318,8 +328,9 @@ module Brush::Pipeline
         def termsig; nil; end
         alias exitstatus to_i
 
-        def method_missing (meth, *args)        # Act like an Integer
-          @to_i.send(meth, *args)
+        # Act like the Fixnum in @to_i.
+        (Fixnum.instance_methods - self.instance_methods).each do |m|
+          eval("def #{m} (*args); @to_i.#{m}(*args); end")
         end
       end 
       object.instance_variable_set(:@to_i, status_integer)

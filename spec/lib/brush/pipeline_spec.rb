@@ -1,3 +1,8 @@
+#
+# Copyright (c) 2009, Michael H. Buselli
+# See LICENSE for details on permitted use.
+#
+
 require './spec/spec_helper.rb'
 require 'brush/pipeline'
 
@@ -57,28 +62,6 @@ describe Brush::Pipeline do
     it "(pipeline) should return one process status for one command" do
       status = pipeline_to(TRUE_CMD)
       status.size.should == 1
-    end
-
-    it "(sys) should return a Process::Status duck" do
-      status = sys_to(*TRUE_CMD)
-      status[0].respond_to?(:success?).should be_true
-      status[0].respond_to?(:exited?).should be_true
-      status[0].respond_to?(:signaled?).should be_true
-      status[0].respond_to?(:stopped?).should be_true
-      status[0].respond_to?(:to_i).should be_true
-      status[0].respond_to?(:exitstatus).should be_true
-      status[0].respond_to?(:pid).should be_true
-    end
-
-    it "(pipeline) should return a Process::Status duck" do
-      status = pipeline_to(TRUE_CMD)
-      status[0].respond_to?(:success?).should be_true
-      status[0].respond_to?(:exited?).should be_true
-      status[0].respond_to?(:signaled?).should be_true
-      status[0].respond_to?(:stopped?).should be_true
-      status[0].respond_to?(:to_i).should be_true
-      status[0].respond_to?(:exitstatus).should be_true
-      status[0].respond_to?(:pid).should be_true
     end
 
     it "(sys) should succeed to run a given command" do
@@ -277,6 +260,28 @@ describe Brush::Pipeline do
     it "(pipeline) should return a failed overall status if the last command fails" do
       status = pipeline_to(TRUE_CMD, TRUE_CMD, FAIL_CMD)
       status.success?.should be_false
+    end
+
+    it "(sys) should return an overall value that quacks like a Process::Status" do
+      status = sys_to(*TRUE_CMD +
+          [{:stdout => [*TRUE_CMD + [{:stdout => TRUE_CMD}]]}])
+      status.should quack_like_a(Process::Status)
+    end
+
+    it "(pipeline) should return an overall value that quacks like a Process::Status" do
+      status = pipeline_to(TRUE_CMD, TRUE_CMD, TRUE_CMD)
+      status.should quack_like_a(Process::Status)
+    end
+
+    it "(sys) should return an Array where every element quacks like a Process::Status" do
+      status = sys_to(*TRUE_CMD +
+          [{:stdout => [*TRUE_CMD + [{:stdout => TRUE_CMD}]]}])
+      status.each { |elt| elt.should quack_like_a(Process::Status) }
+    end
+
+    it "(pipeline) should return an Array where every element quacks like a Process::Status" do
+      status = pipeline_to(TRUE_CMD, TRUE_CMD, TRUE_CMD)
+      status.each { |elt| elt.should quack_like_a(Process::Status) }
     end
 
   end

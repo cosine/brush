@@ -1,3 +1,8 @@
+#
+# Copyright (c) 2009, Michael H. Buselli
+# See LICENSE for details on permitted use.
+#
+
 require './spec/spec_helper.rb'
 require 'brush'
 

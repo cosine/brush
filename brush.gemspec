@@ -1,10 +1,10 @@
 spec = Gem::Specification.new do |s|
   s.name = "brush"
-  s.version = "0.0.1"
+  s.version = "0.0.2"
   s.author = "Michael H Buselli"
   s.email = ["cosine@cosine.org", "michael@buselli.com"]
-  #s.files = Dir["bin/*"] + Dir["lib/**/*"]
-  s.files = ["bin/brush", "lib/brush.rb"]
+  #s.files = ["LICENSE"] + Dir["bin/*"] + Dir["lib/**/*"]
+  s.files = ["LICENSE", "bin/brush", "lib/brush.rb", "lib/brush/pipeline.rb"]
   s.require_path = "lib"
   s.has_rdoc = true
   s.rubyforge_project = "brush"
